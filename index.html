@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Báo Cáo Chương Trình Khuyến Mãi</title>
+<title>Báo Cáo Chương Trình Khuyến Mãi (QAD)</title>
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root { --bg: #f2f7f5; --fg: #2b3d36; --mut: #688478; --card: #ffffff; --line: #cddcd6; --ac: #34645c; --ac2: #d6e5df; --ac-hover: #264a44; --shadow: 0px 8px 24px rgba(52, 100, 92, 0.1); }
@@ -38,6 +38,16 @@ td.sticky-col { position: sticky; left: 0; background: #fafafa; z-index: 1; font
 
 .status-msg { margin-left: 15px; font-size: 13px; color: #d9232d; font-weight: bold; }
 #debugView { margin-top:20px; padding: 15px; background: #1e1e1e; color: #00ff00; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.6; }
+
+/* Bổ sung CSS cho Date Box, Freeze 4 cột và Tab Biểu đồ */
+.tag-date { background: #e7f1ff; color: #0c5460; border: 1px solid #b8daff; font-weight: 600; }
+td.sticky-c2, td.sticky-c4 { font-weight: 400; }
+.sticky-c4 { box-shadow: 2px 0 5px rgba(52, 100, 92, 0.12); }
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.tab-btn { padding: 8px 18px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.15s ease; }
+.tab-btn:hover { background: var(--ac2); }
+.tab-btn.active { background: var(--ac); color: #fff; border-color: var(--ac); }
+.chart-wrap { padding: 20px; height: 60vh; min-height: 420px; position: relative; }
 </style>
 </head>
 <body>
@@ -65,13 +75,21 @@ td.sticky-col { position: sticky; left: 0; background: #fafafa; z-index: 1; font
     <label>Tên Sản Phẩm <input type="text" id="fProdName" placeholder="Gõ tìm sản phẩm..."></label>
   </div>
   <main>
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBtnTable" onclick="switchTab('table')">Bảng Promotion</button>
+      <button class="tab-btn" id="tabBtnChart" onclick="switchTab('chart')">Biểu đồ NET_SALES</button>
+    </div>
     <div class="wrap" id="tableView"><div style="padding: 30px; text-align: center; color: var(--mut); font-style: italic;">Vui lòng nhấn "Tải & Xử lý Dữ liệu" để bắt đầu...</div></div>
+    <div class="wrap chart-wrap" id="chartView" hidden>
+      <canvas id="salesChart"></canvas>
+    </div>
     <div id="debugView">Log Chẩn đoán đã sẵn sàng, hãy bấm nút tải dữ liệu...</div>
   </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
 const CFG = {
@@ -83,7 +101,9 @@ const CFG = {
 
 const sb = supabase.createClient(CFG.url, CFG.key);
 let GLOBAL_DATA = [];
+let GLOBAL_SALES = [];
 let MONTHS = [];
+let salesChartInstance = null;
 
 const $ = s => document.querySelector(s);
 let debugText = "";
@@ -99,6 +119,48 @@ const parseNum = v => (v == null || v === '') ? 0 : (parseFloat(String(v).replac
 const cleanSku = v => String(v ?? '').trim().replace(/-01$/, '');
 const day = ms => Math.floor(ms / 864e5) * 864e5;
 const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+
+// Parse và format Invoice Date từ cột B của QAD
+const parseInvDate = (val) => {
+    if (val === null || val === undefined || val === '') return null;
+    if (val instanceof Date && !isNaN(val.getTime())) {
+        // Xử lý lệch giây nhỏ của Excel/SheetJS (ví dụ 23:59:50)
+        const adjusted = (val.getHours() === 23 && val.getMinutes() >= 50)
+            ? new Date(val.getTime() + 600000)
+            : val;
+        return new Date(adjusted.getFullYear(), adjusted.getMonth(), adjusted.getDate()).getTime();
+    }
+    if (typeof val === 'number' && val > 20000) {
+        const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+        return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime();
+    }
+    const s = String(val).trim();
+    const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+    if (dmy) {
+        let y = parseInt(dmy[3], 10);
+        if (y < 100) y += 2000;
+        return new Date(y, parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10)).getTime();
+    }
+    const ymd = s.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (ymd) {
+        return new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10)).getTime();
+    }
+    const parsed = Date.parse(s);
+    if (!isNaN(parsed)) {
+        const d = new Date(parsed);
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+    return null;
+};
+
+const fmtDate = (ms) => {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+};
 
 const extractWeight = (name) => {
     let nUpper = String(name).toUpperCase();
@@ -126,9 +188,22 @@ async function doLogin() {
 }
 async function logout() { await sb.auth.signOut(); location.reload(); }
 
+function switchTab(tab) {
+  const isTable = tab === 'table';
+  $('#tableView').hidden = !isTable;
+  $('#chartView').hidden = isTable;
+  $('#tabBtnTable').classList.toggle('active', isTable);
+  $('#tabBtnChart').classList.toggle('active', !isTable);
+  if (isTable) {
+    applyStickyColumns();
+  } else {
+    renderChart();
+  }
+}
+
 async function loadAllData() {
   try {
-    debugText = ""; $('#btnLoad').disabled = true;
+    debugText = ""; $('#debugView').hidden = false; $('#btnLoad').disabled = true;
     logD("Chạy lệnh tải dữ liệu...");
 
     logD("Đang gọi hệ thống...");
@@ -165,6 +240,18 @@ async function loadAllData() {
     const qadFiles = files.filter(f => f.name && f.name.toLowerCase().endsWith('.xlsx') && !f.name.toLowerCase().includes('master') && !f.name.startsWith('.'));
     
     let allPromos = [];
+    const salesAggMap = new Map();
+
+    const addTotalSale = (month, hq, area, prov, line, type, customer, sku, skuName, netVal) => {
+      if (!netVal) return;
+      const key = `${month}|${hq}|${area}|${prov}|${line}|${type}|${customer}|${sku}|${skuName}`;
+      const existing = salesAggMap.get(key);
+      if (existing) {
+        existing.netSales += netVal;
+      } else {
+        salesAggMap.set(key, { month, hq, area, prov, line, type, customer, sku, skuName, netSales: netVal });
+      }
+    };
 
     for (const f of qadFiles) {
       logD(`-------------`);
@@ -180,7 +267,10 @@ async function loadAllData() {
       if (fileErr) throw fileErr;
       
       const wb = XLSX.read(await fileBlob.arrayBuffer(), { type: 'array', cellDates: true });
-      const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: null });
+      const headerRow = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0 })[0] || [];
+      const colBKey = (headerRow[1] !== undefined && headerRow[1] !== null) ? String(headerRow[1]) : null;
 
       const invoices = {};
       raw.forEach(r => {
@@ -224,6 +314,11 @@ async function loadAllData() {
         if (skipInvoices.has(invNumber)) return;
 
         const firstRow = invRows[0];
+        const rawInvDate = (colBKey && firstRow[colBKey] !== undefined && firstRow[colBKey] !== null)
+            ? firstRow[colBKey]
+            : getCol(firstRow, /^invoice.*date$|^inv.*date$|^ngày.*hóa.*đơn|^ngày.*ct/i);
+        const invDateMs = parseInvDate(rawInvDate);
+
         const cusTypeRaw = String(getCol(firstRow, /^customer.*type$|^loại.*khách$/i) || '').trim().toUpperCase();
         const cusNameRaw = String(getCol(firstRow, /^bill.*to.*desc|^customer.*name|^khách.*hàng|^tên.*khách/i) || getCol(firstRow, /^key.*cus/i) || getCol(firstRow, /^customer$/i) || '').trim();
         const hq = String(getCol(firstRow, /^hq$/i) || '').trim();
@@ -238,6 +333,41 @@ async function loadAllData() {
         const customer = custypeMap[cusTypeRaw] || cusNameRaw;
 
         if (typeStr === 'ICB' || typeStr === 'E-Commerce') return;
+
+        // Gom NET_SALES Total cho biểu đồ (hỗ trợ tất cả bộ lọc)
+        let lastBaseSku = '', lastBaseSkuName = '';
+        invRows.forEach(r => {
+            const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+            const itemVal = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
+            const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+            let rowLine = '';
+            if (rawLineDesc.includes('MIX')) rowLine = 'MIX';
+            else if (rawLineDesc.includes('BITEEZ')) rowLine = 'BiteeZ';
+            else if (rawLineDesc.includes('PARTEEZ')) rowLine = 'ParteeZ';
+            else if (rawLineDesc.includes('DOUBLE')) rowLine = 'Vermicelli';
+            else if (rawLineDesc.includes('YAPPY')) rowLine = 'Yappy';
+            else rowLine = rawLineDesc;
+
+            const isCKCT = itemVal.startsWith('CKCT');
+            const isFOC = itemVal.endsWith('-01');
+            let rowSku = cleanSku(itemVal);
+            let rowSkuName = '';
+            if (!isCKCT && !isFOC && rowSku) {
+                const mData = masterMap.get(rowSku) || {};
+                const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                rowSkuName = skuMap[rowSku] || rawItemDesc || mData.name || rowSku;
+                lastBaseSku = rowSku;
+                lastBaseSkuName = rowSkuName;
+            } else if (isCKCT && lastBaseSku) {
+                rowSku = lastBaseSku;
+                rowSkuName = lastBaseSkuName;
+            } else {
+                const mData = masterMap.get(rowSku) || {};
+                const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                rowSkuName = skuMap[rowSku] || rawItemDesc || mData.name || rowSku;
+            }
+            addTotalSale(fileMonthStr, hq, area, prov, rowLine, typeStr, customer, rowSku, rowSkuName, net);
+        });
 
         // --- BƯỚC ĐẾM (PRE-CHECK) CHO PHÒNG TUYẾN YAPPY ---
         let yappyBaseCount = 0;
@@ -308,8 +438,9 @@ async function loadAllData() {
                         let takeCtn = b.ctn * (take / b.origQty);
                         matchedNet += takeNet;
                         
-                        if (!matchedSkus[b.sku]) matchedSkus[b.sku] = { name: b.skuName, ctn: 0 };
+                        if (!matchedSkus[b.sku]) matchedSkus[b.sku] = { name: b.skuName, ctn: 0, net: 0 };
                         matchedSkus[b.sku].ctn += takeCtn;
+                        matchedSkus[b.sku].net += takeNet;
                         
                         if (remainingQty <= 1e-6) break;
                     }
@@ -321,7 +452,8 @@ async function loadAllData() {
                             month: fileMonthStr, hq, area, prov, line: 'Yappy', type: typeStr, customer,
                             sku: sku, skuName: matchedSkus[sku].name, 
                             pctValue: pctValue, dispBuy: null, dispGet: null, baseCtn: Number(matchedSkus[sku].ctn.toFixed(2)),
-                            inv: invNumber 
+                            inv: invNumber, invDate: invDateMs, promoNet: matchedSkus[sku].net,
+                            promoKey: `${invNumber}|YAPPY_STEP0|${sku}`
                         });
                     });
                 }
@@ -372,7 +504,7 @@ async function loadAllData() {
                     if (!groupAgg[groupKey]) groupAgg[groupKey] = { line: finalLine, baseCtn: 0, baseNet: 0, ckctNet: 0, focCtn: 0, skus: [] };
                     groupAgg[groupKey].baseCtn += ctn;
                     groupAgg[groupKey].baseNet += Math.abs(net);
-                    groupAgg[groupKey].skus.push({ sku: baseSku, skuName: finalSkuName, groupKey: groupKey, ctn: ctn });
+                    groupAgg[groupKey].skus.push({ sku: baseSku, skuName: finalSkuName, groupKey: groupKey, ctn: ctn, net: Math.abs(net) });
                 }
 
                 baseRowsMap[lNum] = { isTarget: !!finalLine, groupKey: groupKey };
@@ -511,7 +643,8 @@ async function loadAllData() {
                                     month: fileMonthStr, hq, area, prov, line: baseLine, type: typeStr, customer,
                                     sku: baseSkuRaw, skuName: finalName, 
                                     pctValue: pctValue, dispBuy: dispBuy, dispGet: dispGet, baseCtn: Number(exactBaseCtn.toFixed(2)),
-                                    inv: invNumber 
+                                    inv: invNumber, invDate: invDateMs, promoNet: Math.abs(exactBaseNet),
+                                    promoKey: `${invNumber}|LINE_${lNum - 1}|${baseSkuRaw}`
                                 });
                             }
                         }
@@ -534,8 +667,9 @@ async function loadAllData() {
                 if (pctValue !== null || dispBuy !== null) {
                     const skuAgg = {};
                     agg.skus.forEach(s => {
-                        if(!skuAgg[s.sku]) skuAgg[s.sku] = { name: s.skuName, ctn: 0 };
+                        if(!skuAgg[s.sku]) skuAgg[s.sku] = { name: s.skuName, ctn: 0, net: 0 };
                         skuAgg[s.sku].ctn += s.ctn;
+                        skuAgg[s.sku].net += s.net;
                     });
                     Object.keys(skuAgg).forEach(sku => {
                         const indCtn = Number(skuAgg[sku].ctn.toFixed(2));
@@ -543,7 +677,8 @@ async function loadAllData() {
                             month: fileMonthStr, hq, area, prov, line: agg.line, type: typeStr, customer,
                             sku: sku, skuName: skuAgg[sku].name, 
                             pctValue: pctValue, dispBuy: dispBuy, dispGet: dispGet, baseCtn: indCtn,
-                            inv: invNumber
+                            inv: invNumber, invDate: invDateMs, promoNet: skuAgg[sku].net,
+                            promoKey: `${invNumber}|TT_${gKey}|${sku}`
                         });
                     });
                 }
@@ -553,10 +688,12 @@ async function loadAllData() {
     }
 
     GLOBAL_DATA = allPromos;
+    GLOBAL_SALES = Array.from(salesAggMap.values());
     logD(`THÀNH CÔNG! Đã xử lý ${GLOBAL_DATA.length} dòng lệnh để kết xuất ra chương trình promotion.`);
-    MONTHS = [...new Set(allPromos.map(x => x.month))].sort();
-    populateFilters(); renderTable();
+    MONTHS = [...new Set([...allPromos.map(x => x.month), ...GLOBAL_SALES.map(x => x.month)])].sort();
+    populateFilters(); renderAll();
     $('#status').textContent = `Đã kết xuất Promotion từ(${allPromos.length} dòng lệnh!)`;
+    $('#debugView').hidden = true;
   } catch (e) {
     console.error(e); $('#status').textContent = 'Lỗi!'; logD(`CRASHED LỖI: ${e.message}`);
   } finally { $('#btnLoad').disabled = false; }
@@ -574,16 +711,46 @@ function populateFilters() {
   fill('#fType', getUnique('type'));
 }
 
-function renderTable() {
-  const fH = $('#fHQ').value, fA = $('#fArea').value, fP = $('#fProv').value, fL = $('#fLine').value, fT = $('#fType').value;
-  const cusSearch = $('#fCusName').value.trim().toLowerCase();
-  const prodSearch = $('#fProdName').value.trim().toLowerCase();
+function applyStickyColumns() {
+  const table = $('#tableView table');
+  if (!table) return;
+  const ths = table.querySelectorAll('thead th.sticky-col');
+  let leftOffset = 0;
+  ths.forEach((th, idx) => {
+    const colClass = `.sticky-c${idx + 1}`;
+    const width = th.getBoundingClientRect().width;
+    table.querySelectorAll(colClass).forEach(cell => {
+      cell.style.left = leftOffset + 'px';
+    });
+    leftOffset += width;
+  });
+}
 
-  const filtered = GLOBAL_DATA.filter(r => 
-    (!fH || r.hq === fH) && (!fA || r.area === fA) && (!fP || r.prov === fP) && (!fL || r.line === fL) && (!fT || r.type === fT) &&
-    (!cusSearch || (r.customer && r.customer.toLowerCase().includes(cusSearch))) &&
-    (!prodSearch || (r.skuName && r.skuName.toLowerCase().includes(prodSearch)) || (r.sku && r.sku.toLowerCase().includes(prodSearch)))
-  );
+function getFilterValues() {
+  return {
+    fH: $('#fHQ').value,
+    fA: $('#fArea').value,
+    fP: $('#fProv').value,
+    fL: $('#fLine').value,
+    fT: $('#fType').value,
+    cusSearch: $('#fCusName').value.trim().toLowerCase(),
+    prodSearch: $('#fProdName').value.trim().toLowerCase()
+  };
+}
+
+function matchFilters(r, f) {
+  return (!f.fH || r.hq === f.fH) &&
+         (!f.fA || r.area === f.fA) &&
+         (!f.fP || r.prov === f.fP) &&
+         (!f.fL || r.line === f.fL) &&
+         (!f.fT || r.type === f.fT) &&
+         (!f.cusSearch || (r.customer && r.customer.toLowerCase().includes(f.cusSearch))) &&
+         (!f.prodSearch || (r.skuName && r.skuName.toLowerCase().includes(f.prodSearch)) || (r.sku && r.sku.toLowerCase().includes(f.prodSearch)));
+}
+
+function renderTable() {
+  const f = getFilterValues();
+  const filtered = GLOBAL_DATA.filter(r => matchFilters(r, f));
 
   if (filtered.length === 0) { $('#tableView').innerHTML = `<div style="padding: 30px; text-align: center; color: var(--mut);">Không có dữ liệu khuyến mãi phù hợp bộ lọc.</div>`; return; }
 
@@ -597,21 +764,27 @@ function renderTable() {
     
     if (!pivot[rowKey][r.month][ruleKey]) {
         pivot[rowKey][r.month][ruleKey] = {
-            baseCtn: 0, pctValue: r.pctValue, dispBuy: r.dispBuy, dispGet: r.dispGet, invoices: new Set()
+            baseCtn: 0, pctValue: r.pctValue, dispBuy: r.dispBuy, dispGet: r.dispGet,
+            invoices: new Set(), minDate: null, maxDate: null
         };
     }
-    pivot[rowKey][r.month][ruleKey].baseCtn += r.baseCtn;
-    if(r.inv) pivot[rowKey][r.month][ruleKey].invoices.add(r.inv);
+    const cellPromo = pivot[rowKey][r.month][ruleKey];
+    cellPromo.baseCtn += r.baseCtn;
+    if(r.inv) cellPromo.invoices.add(r.inv);
+    if (r.invDate) {
+        if (cellPromo.minDate === null || r.invDate < cellPromo.minDate) cellPromo.minDate = r.invDate;
+        if (cellPromo.maxDate === null || r.invDate > cellPromo.maxDate) cellPromo.maxDate = r.invDate;
+    }
   });
 
   const rowKeys = Object.keys(pivot).sort((a,b) => a.localeCompare(b));
-  let html = `<table><thead><tr><th class="sticky-col">KH</th><th>Loại KH</th><th>SKU</th><th>Tên Sản phẩm</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}</tr></thead><tbody>`;
+  let html = `<table><thead><tr><th class="sticky-col sticky-c1">KH</th><th class="sticky-col sticky-c2">Loại KH</th><th class="sticky-col sticky-c3">SKU</th><th class="sticky-col sticky-c4">Tên Sản phẩm</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}</tr></thead><tbody>`;
 
   rowKeys.forEach(k => {
     const [cus, type, sku, name] = k.split('|');
     const displayType = type === 'Other' ? '' : type;
     
-    html += `<tr><td class="sticky-col">${cus}</td><td>${displayType}</td><td style="font-weight:bold; color:var(--ac)">${sku}</td><td>${name}</td>`;
+    html += `<tr><td class="sticky-col sticky-c1">${cus}</td><td class="sticky-col sticky-c2">${displayType}</td><td class="sticky-col sticky-c3" style="font-weight:bold; color:var(--ac)">${sku}</td><td class="sticky-col sticky-c4">${name}</td>`;
     MONTHS.forEach(m => {
       const cellData = pivot[k][m];
       if (cellData) {
@@ -629,6 +802,12 @@ function renderTable() {
               let tags = `<span class="promo-tag tag-qty">Mua: ${fmt(promo.baseCtn)}</span>`;
               if (promo.pctValue !== null) tags += `<span class="promo-tag tag-pct ${warnClass}">${promo.pctValue}%</span>`;
               if (promo.dispBuy !== null) tags += `<span class="promo-tag tag-foc ${warnClass}">B ${fmt(promo.dispBuy)} G ${fmt(promo.dispGet)}</span>`;
+              if (promo.minDate && promo.maxDate) {
+                  const dateLabel = promo.minDate === promo.maxDate
+                      ? fmtDate(promo.minDate)
+                      : `${fmtDate(promo.minDate)} - ${fmtDate(promo.maxDate)}`;
+                  tags += `<span class="promo-tag tag-date">${dateLabel}</span>`;
+              }
               
               htmlArr.push(`<div class="promo-group" title="Hóa đơn: ${invList}">${tags}</div>`);
           });
@@ -641,10 +820,107 @@ function renderTable() {
   });
 
   html += `</tbody></table>`; $('#tableView').innerHTML = html;
+  if (!$('#tableView').hidden) applyStickyColumns();
 }
 
-['#fHQ', '#fArea', '#fProv', '#fLine', '#fType'].forEach(id => { $(id).addEventListener('change', renderTable); });
-['#fCusName', '#fProdName'].forEach(id => { $(id).addEventListener('input', renderTable); });
+function renderChart() {
+  const ctx = $('#salesChart');
+  if (!ctx) return;
+
+  const f = getFilterValues();
+  const totalByMonth = {};
+  const promoByMonth = {};
+  MONTHS.forEach(m => { totalByMonth[m] = 0; promoByMonth[m] = 0; });
+
+  GLOBAL_SALES.filter(r => matchFilters(r, f)).forEach(r => {
+    if (totalByMonth[r.month] !== undefined) totalByMonth[r.month] += r.netSales;
+  });
+
+  const seenPromoKeys = new Set();
+  GLOBAL_DATA.filter(r => matchFilters(r, f)).forEach(r => {
+    if (r.promoKey && seenPromoKeys.has(r.promoKey)) return;
+    if (r.promoKey) seenPromoKeys.add(r.promoKey);
+    if (promoByMonth[r.month] !== undefined) promoByMonth[r.month] += (r.promoNet || 0);
+  });
+
+  const totalSeries = MONTHS.map(m => Math.round(totalByMonth[m]));
+  const promoSeries = MONTHS.map(m => Math.round(promoByMonth[m]));
+
+  if (salesChartInstance) salesChartInstance.destroy();
+  salesChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: MONTHS,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'NET_SALES Total',
+          data: totalSeries,
+          backgroundColor: 'rgba(52, 100, 92, 0.72)',
+          borderColor: '#34645c',
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'yLeft',
+          order: 2
+        },
+        {
+          type: 'line',
+          label: 'NET_SALES Promotion',
+          data: promoSeries,
+          borderColor: '#e67e22',
+          backgroundColor: 'rgba(230, 126, 34, 0.15)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#e67e22',
+          tension: 0.25,
+          yAxisID: 'yRight',
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: (c) => `${c.dataset.label}: ${Number(c.parsed.y || 0).toLocaleString('vi-VN')}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Tháng', font: { weight: 'bold' } }
+        },
+        yLeft: {
+          type: 'linear',
+          position: 'left',
+          beginAtZero: true,
+          title: { display: true, text: 'NET_SALES Total', color: '#34645c', font: { weight: 'bold' } },
+          ticks: { callback: v => Number(v).toLocaleString('vi-VN') }
+        },
+        yRight: {
+          type: 'linear',
+          position: 'right',
+          beginAtZero: true,
+          grid: { drawOnChartArea: false },
+          title: { display: true, text: 'NET_SALES Promotion', color: '#e67e22', font: { weight: 'bold' } },
+          ticks: { callback: v => Number(v).toLocaleString('vi-VN') }
+        }
+      }
+    }
+  });
+}
+
+function renderAll() {
+  renderTable();
+  if (!$('#chartView').hidden) renderChart();
+}
+
+['#fHQ', '#fArea', '#fProv', '#fLine', '#fType'].forEach(id => { $(id).addEventListener('change', renderAll); });
+['#fCusName', '#fProdName'].forEach(id => { $(id).addEventListener('input', renderAll); });
 </script>
 </body>
 </html>
