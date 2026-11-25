@@ -217,7 +217,11 @@ async function loadAllData() {
     const res = await fetch(CFG.planUrl); const json = await res.json();
     const unitMap = {}, custypeMap = {}, skuMap = {};
     
-    (json.unit || []).forEach(r => { unitMap[String(Object.values(r)[0]).trim().toUpperCase()] = String(r['EA Qty Type'] || r['ea qty type'] || '').trim(); });
+   (json.unit || []).forEach(r => {
+  const uKey = String(getCol(r, /^unit.*of.*measure$/i) || Object.values(r)[0] || '').trim().toUpperCase();
+  const uType = String(getCol(r, /ea.*qty.*type/i) || '').trim();
+  if (uKey) unitMap[uKey] = uType;
+});
     (json.custype || []).forEach(r => { const keys = Object.keys(r); if (keys.length >= 2) custypeMap[String(r[keys[0]]).trim().toUpperCase()] = String(r[keys[1]]).trim(); });
     (json.sku || []).forEach(r => { const keys = Object.keys(r); if (keys.length >= 2) { const code = String(r[keys[0]] || '').trim().toUpperCase(); if(code) skuMap[cleanSku(code)] = String(r[keys[1]] || '').trim(); } });
 
