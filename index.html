@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Báo Cáo Chương Trình Khuyến Mãi (QAD)</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root { --bg: #f2f7f5; --fg: #2b3d36; --mut: #688478; --card: #ffffff; --line: #cddcd6; --ac: #34645c; --ac2: #d6e5df; --ac-hover: #264a44; --shadow: 0px 8px 24px rgba(52, 100, 92, 0.1); }
+* { box-sizing: border-box; } 
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Open Sans", sans-serif; } [hidden] { display: none !important; }
+#login { display: flex; align-items: center; justify-content: center; height: 100vh; background: #2b3d36; }
+.login-box { background: #fff; padding: 40px 30px; border-radius: 16px; box-shadow: var(--shadow); width: 100%; max-width: 360px; text-align: center; }
+.login-box h2 { margin-top: 0; font-family: "Raleway", sans-serif; color: var(--ac); margin-bottom: 20px; }
+.login-box input { width: 100%; padding: 10px 15px; margin-bottom: 15px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; outline: none; }
+.login-box button { width: 100%; padding: 10px; background: var(--ac); color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+#loginErr { color: #d9232d; font-size: 13px; margin-top: 10px; min-height: 18px; }
+header { display: flex; align-items: center; padding: 15px 30px; background: var(--card); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 20px; margin: 0; font-family: "Raleway", sans-serif; color: var(--ac); flex: 1; }
+.controls, .filters { display: flex; gap: 15px; padding: 15px 30px; flex-wrap: wrap; align-items: flex-end; }
+.controls { background: var(--ac2); } .filters { background: var(--card); border-bottom: 2px solid var(--line); }
+.filters label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 600; color: var(--mut); text-transform: uppercase; }
+input, select { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; min-width: 140px; }
+button.btn-load { padding: 8px 16px; background: var(--ac); color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+main { padding: 20px 30px; } .wrap { max-height: 60vh; overflow: auto; background: var(--card); border-radius: 12px; box-shadow: var(--shadow); }
+table { border-collapse: collapse; width: 100%; white-space: nowrap; font-size: 12px; }
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); text-align: left; }
+th { background: var(--ac); color: white; position: sticky; top: 0; z-index: 2; }
+td.sticky-col { position: sticky; left: 0; background: #fafafa; z-index: 1; font-weight: 600; } th.sticky-col { position: sticky; left: 0; z-index: 3; }
+
+/* Styling for Promo Tags */
+.promo-group { display: inline-flex; align-items: center; gap: 4px; margin: 2px 0; background: #f8f9fa; border: 1px solid var(--line); padding: 2px 4px; border-radius: 6px; cursor: help; }
+.promo-tag { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+.tag-pct { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.tag-foc { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+.tag-qty { background: #e2e3e5; color: #383d41; border: 1px solid #d6d8db; font-weight: 600; }
+.tag-warn { background: #fde5c5 !important; color: #d9232d !important; border-color: #f5c6cb !important; }
+
+.status-msg { margin-left: 15px; font-size: 13px; color: #d9232d; font-weight: bold; }
+#debugView { margin-top:20px; padding: 15px; background: #1e1e1e; color: #00ff00; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="login-box">
+    <h2>Đăng nhập</h2>
+    <input type="email" id="em" placeholder="Email" autocomplete="username">
+    <input type="password" id="pw" placeholder="Mật khẩu" autocomplete="current-password">
+    <button id="btnLogin" onclick="doLogin()">Đăng nhập</button>
+    <div id="loginErr"></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header><h1>Báo Cáo Chương Trình Khuyến Mãi (QAD)</h1><button onclick="logout()" style="background:transparent; border:1px solid var(--line); color:var(--fg); padding:5px 10px; border-radius:6px; cursor:pointer;">Đăng xuất</button></header>
+  <div class="controls"><button class="btn-load" id="btnLoad" onclick="loadAllData()">Tải & Xử lý Dữ liệu</button><span id="status" class="status-msg"></span></div>
+  <div class="filters">
+    <label>HQ <select id="fHQ"><option value="">Tất cả</option></select></label>
+    <label>Area <select id="fArea"><option value="">Tất cả</option></select></label>
+    <label>Province <select id="fProv"><option value="">Tất cả</option></select></label>
+    <label>Ngành hàng <select id="fLine"><option value="">Tất cả</option></select></label>
+    <label>Loại Khách Hàng <select id="fType"><option value="">Tất cả</option></select></label>
+    <label>Tên Khách Hàng <input type="text" id="fCusName" placeholder="Gõ tìm khách..."></label>
+    <label>Tên Sản Phẩm <input type="text" id="fProdName" placeholder="Gõ tìm sản phẩm..."></label>
+  </div>
+  <main>
+    <div class="wrap" id="tableView"><div style="padding: 30px; text-align: center; color: var(--mut); font-style: italic;">Vui lòng nhấn "Tải & Xử lý Dữ liệu" để bắt đầu...</div></div>
+    <div id="debugView">Log Chẩn đoán đã sẵn sàng, hãy bấm nút tải dữ liệu...</div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+const CFG = {
+  url: 'https://didthuazwmuxddlxhkob.supabase.co',
+  key: 'sb_publishable_qDGjgGQ06a5w8_DM903-UQ_cMEuI-lw',
+  bucket: 'qad', 
+  planUrl: 'https://script.google.com/macros/s/AKfycbyqGQoY8K6mCNxNq_sUjlzN-PdgH-DqnfKG-J15XGHAi2eJcIlQqtT5iszbaE0Sg7pLoQ/exec'
+};
+
+const sb = supabase.createClient(CFG.url, CFG.key);
+let GLOBAL_DATA = [];
+let MONTHS = [];
+
+const $ = s => document.querySelector(s);
+let debugText = "";
+const logD = (msg) => { debugText += `> ${msg}<br>`; $('#debugView').innerHTML = debugText; console.log(msg); };
+
+const getCol = (row, regex) => {
+    if (!row) return undefined;
+    const key = Object.keys(row).find(k => regex.test(String(k).trim().replace(/\s+/g, ' ')));
+    return key ? row[key] : undefined;
+};
+
+const parseNum = v => (v == null || v === '') ? 0 : (parseFloat(String(v).replace(/[,\s]/g, '')) || 0);
+const cleanSku = v => String(v ?? '').trim().replace(/-01$/, '');
+const day = ms => Math.floor(ms / 864e5) * 864e5;
+const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+
+const extractWeight = (name) => {
+    let nUpper = String(name).toUpperCase();
+    let subBrand = "";
+    if (nUpper.includes('SENBEI')) subBrand = "SENBEI_";
+    else if (nUpper.includes('SNOWY')) subBrand = "SNOWY_";
+
+    const vTypeMatch = nUpper.match(/\b(FV|BV|AV)\b/);
+    if (vTypeMatch) {
+        subBrand += vTypeMatch[1] + "_"; 
+    }
+
+    const match = name.match(/(\d+(?:\.\d+)?\s*(?:\+\s*\d+(?:\.\d+)?)?\s*k?g(?:r)?)/i);
+    let weight = match ? match[0].toLowerCase().replace(/\s/g, '') : 'default';
+    return subBrand + weight;
+};
+
+$('#pw').addEventListener('keydown', e => { if(e.key === 'Enter') doLogin(); });
+async function doLogin() {
+  $('#loginErr').textContent = "Đang đăng nhập..."; $('#btnLogin').disabled = true;
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+    if (error) throw error; $('#login').hidden = true; $('#app').hidden = false;
+  } catch(e) { $('#loginErr').textContent = "Lỗi: " + e.message; } finally { $('#btnLogin').disabled = false; }
+}
+async function logout() { await sb.auth.signOut(); location.reload(); }
+
+async function loadAllData() {
+  try {
+    debugText = ""; $('#btnLoad').disabled = true;
+    logD("Chạy lệnh tải dữ liệu...");
+
+    logD("Đang gọi hệ thống...");
+    const res = await fetch(CFG.planUrl); const json = await res.json();
+    const unitMap = {}, custypeMap = {}, skuMap = {};
+    
+    (json.unit || []).forEach(r => { unitMap[String(Object.values(r)[0]).trim().toUpperCase()] = String(r['EA Qty Type'] || r['ea qty type'] || '').trim(); });
+    (json.custype || []).forEach(r => { const keys = Object.keys(r); if (keys.length >= 2) custypeMap[String(r[keys[0]]).trim().toUpperCase()] = String(r[keys[1]]).trim(); });
+    (json.sku || []).forEach(r => { const keys = Object.keys(r); if (keys.length >= 2) { const code = String(r[keys[0]] || '').trim().toUpperCase(); if(code) skuMap[cleanSku(code)] = String(r[keys[1]] || '').trim(); } });
+
+    const { data: masterBlob, error: mErr } = await sb.storage.from(CFG.bucket).download('master.xlsx');
+    if (mErr) throw mErr;
+    const mWB = XLSX.read(await masterBlob.arrayBuffer(), { type: 'array' });
+    const masterRaw = XLSX.utils.sheet_to_json(mWB.Sheets[mWB.SheetNames[0]], { defval: null });
+    
+    const masterMap = new Map();
+    masterRaw.forEach(r => {
+      const code = cleanSku(getCol(r, /^item.*code$|^item.*number$|^sku$|^mã/i));
+      if (!code) return;
+      const rawName = String(getCol(r, /^(tên|description)/i) || '').trim();
+      masterMap.set(code, { name: rawName, ea: { 1: +getCol(r, /^ea qty #1/i)||1, 2: +getCol(r, /^ea qty #2/i)||1, 3: +getCol(r, /^ea qty #3/i)||1 } });
+    });
+
+    const getCartonQty = (sku, qty, uom) => {
+      const baseSku = cleanSku(sku); const m = masterMap.get(baseSku);
+      const u = String(uom || '').trim().toUpperCase(); const t = unitMap[u] || '';
+      const eaLevel = /3|cn|can/i.test(t) ? 3 : /2|pack/i.test(t) ? 2 : 1;
+      return m ? (qty / (m.ea[eaLevel] || 1)) : qty;
+    };
+
+    const { data: files, error: fErr } = await sb.storage.from(CFG.bucket).list('', { limit: 100 });
+    if (fErr) throw fErr;
+    
+    const qadFiles = files.filter(f => f.name && f.name.toLowerCase().endsWith('.xlsx') && !f.name.toLowerCase().includes('master') && !f.name.startsWith('.'));
+    
+    let allPromos = [];
+
+    for (const f of qadFiles) {
+      logD(`-------------`);
+      logD(`Đang xử lí file: ${f.name}`);
+      
+      let fileMonthStr = "Unknown";
+      const m1 = f.name.match(/(\d{4})[\.\-_](\d{1,2})/); 
+      const m2 = f.name.match(/(\d{1,2})[\.\-_](\d{4})/); 
+      if (m1) fileMonthStr = `${m1[1]}.${String(m1[2]).padStart(2, '0')}`;
+      else if (m2) fileMonthStr = `${m2[2]}.${String(m2[1]).padStart(2, '0')}`;
+
+      const { data: fileBlob, error: fileErr } = await sb.storage.from(CFG.bucket).download(f.name);
+      if (fileErr) throw fileErr;
+      
+      const wb = XLSX.read(await fileBlob.arrayBuffer(), { type: 'array', cellDates: true });
+      const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null });
+
+      const invoices = {};
+      raw.forEach(r => {
+        const invRaw = getCol(r, /^invoice.*number$|^mã.*ct|^hóa.*đơn|^so.*ct|^số.*ct$/i);
+        const inv = String(invRaw || '').trim();
+        if (!inv) return;
+        if (!invoices[inv]) invoices[inv] = [];
+        invoices[inv].push(r);
+      });
+
+      const skipInvoices = new Set();
+      const invoiceSignatures = {};
+      
+      Object.keys(invoices).forEach(inv => {
+          let totalAbsNet = 0, totalAbsQty = 0, cusIdentifier = "";
+          invoices[inv].forEach(r => {
+              const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+              const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+              totalAbsNet += Math.abs(net);
+              totalAbsQty += Math.abs(qty);
+              if (!cusIdentifier) {
+                  cusIdentifier = String(getCol(r, /^key.*cus/i) || getCol(r, /^bill.*to/i) || '').trim();
+              }
+          });
+          const sig = `${cusIdentifier}_${totalAbsNet.toFixed(2)}_${totalAbsQty.toFixed(2)}`;
+          invoiceSignatures[inv] = { isCCN: String(inv).toUpperCase().includes('CCN'), sig: sig };
+      });
+
+      const ccnKeys = Object.keys(invoiceSignatures).filter(k => invoiceSignatures[k].isCCN);
+      const civKeys = Object.keys(invoiceSignatures).filter(k => !invoiceSignatures[k].isCCN);
+
+      ccnKeys.forEach(ccn => {
+          const sig = invoiceSignatures[ccn].sig;
+          const matchingCiv = civKeys.find(civ => invoiceSignatures[civ].sig === sig && !skipInvoices.has(civ));
+          skipInvoices.add(ccn); 
+          if (matchingCiv) skipInvoices.add(matchingCiv); 
+      });
+
+      Object.values(invoices).forEach(invRows => {
+        const invNumber = String(getCol(invRows[0], /^invoice.*number$|^mã.*ct|^hóa.*đơn|^so.*ct|^số.*ct$/i) || '').trim();
+        if (skipInvoices.has(invNumber)) return;
+
+        const firstRow = invRows[0];
+        const cusTypeRaw = String(getCol(firstRow, /^customer.*type$|^loại.*khách$/i) || '').trim().toUpperCase();
+        const cusNameRaw = String(getCol(firstRow, /^bill.*to.*desc|^customer.*name|^khách.*hàng|^tên.*khách/i) || getCol(firstRow, /^key.*cus/i) || getCol(firstRow, /^customer$/i) || '').trim();
+        const hq = String(getCol(firstRow, /^hq$/i) || '').trim();
+        const area = String(getCol(firstRow, /^area|^vùng/i) || '').trim();
+        const prov = String(getCol(firstRow, /^province|^tỉnh/i) || '').trim();
+        
+        let typeStr = 'Other';
+        if (cusTypeRaw.includes('MODERN')) typeStr = 'MT';
+        else if (cusTypeRaw.includes('TRADITIONAL')) typeStr = 'TT';
+        else if (cusTypeRaw.includes('E-COMMERCE') || cusTypeRaw.includes('ECOMMERCE')) typeStr = 'E-Commerce';
+        else if (cusTypeRaw.includes('ICB')) typeStr = 'ICB';
+        const customer = custypeMap[cusTypeRaw] || cusNameRaw;
+
+        if (typeStr === 'ICB' || typeStr === 'E-Commerce') return;
+
+        // --- BƯỚC ĐẾM (PRE-CHECK) CHO PHÒNG TUYẾN YAPPY ---
+        let yappyBaseCount = 0;
+        let yappyCkctCount = 0;
+        invRows.forEach(r => {
+            const item = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
+            const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+            if (rawLineDesc.includes('YAPPY')) {
+                if (item.startsWith('CKCT')) {
+                    yappyCkctCount++;
+                } else if (!item.endsWith('-01')) {
+                    yappyBaseCount++;
+                }
+            }
+        });
+        
+        // Điều kiện kích hoạt thuật toán Yappy Block Matching: Có từ 2 dòng mua trở lên NHƯNG chỉ có 1 dòng CKCT.
+        const useSpecialYappyLogic = (yappyBaseCount >= 2 && yappyCkctCount === 1);
+
+
+        // --- BƯỚC 0: TIỀN XỬ LÝ ĐỘC QUYỀN CKCT CHO NGÀNH HÀNG YAPPY (NẾU KÍCH HOẠT PHÒNG TUYẾN) ---
+        if (useSpecialYappyLogic) {
+            let yappyBaseLines = [];
+            invRows.forEach(r => {
+                const item = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
+                const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+                
+                if (rawLineDesc.includes('YAPPY') && !item.startsWith('CKCT') && !item.endsWith('-01')) {
+                    const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+                    const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
+                    const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+                    const baseSku = cleanSku(item);
+                    const ctn = getCartonQty(baseSku, Math.abs(qty), uom);
+                    
+                    const mData = masterMap.get(baseSku) || {};
+                    const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                    const finalSkuName = skuMap[baseSku] || rawItemDesc || mData.name || baseSku;
+                    
+                    yappyBaseLines.push({
+                        sku: baseSku, skuName: finalSkuName,
+                        origQty: Math.abs(qty), remQty: Math.abs(qty), 
+                        net: Math.abs(net), ctn: ctn
+                    });
+                }
+            });
+
+            invRows.forEach(r => {
+                const item = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
+                const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+                
+                if (rawLineDesc.includes('YAPPY') && item.startsWith('CKCT')) {
+                    const ckctQty = Math.abs(parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i)));
+                    const ckctNet = Math.abs(parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i)));
+                    
+                    let remainingQty = ckctQty;
+                    let matchedNet = 0;
+                    let matchedSkus = {};
+                    
+                    for (let i = yappyBaseLines.length - 1; i >= 0; i--) {
+                        let b = yappyBaseLines[i];
+                        if (b.remQty <= 0) continue;
+                        
+                        let take = Math.min(b.remQty, remainingQty);
+                        b.remQty -= take;
+                        remainingQty -= take;
+                        
+                        let takeNet = b.net * (take / b.origQty);
+                        let takeCtn = b.ctn * (take / b.origQty);
+                        matchedNet += takeNet;
+                        
+                        if (!matchedSkus[b.sku]) matchedSkus[b.sku] = { name: b.skuName, ctn: 0 };
+                        matchedSkus[b.sku].ctn += takeCtn;
+                        
+                        if (remainingQty <= 1e-6) break;
+                    }
+                    
+                    let pctValue = matchedNet > 0 ? ((ckctNet / matchedNet) * 100).toFixed(2) : 0;
+                    
+                    Object.keys(matchedSkus).forEach(sku => {
+                        allPromos.push({
+                            month: fileMonthStr, hq, area, prov, line: 'Yappy', type: typeStr, customer,
+                            sku: sku, skuName: matchedSkus[sku].name, 
+                            pctValue: pctValue, dispBuy: null, dispGet: null, baseCtn: Number(matchedSkus[sku].ctn.toFixed(2)),
+                            inv: invNumber 
+                        });
+                    });
+                }
+            });
+        }
+        // --- KẾT THÚC BƯỚC 0 ---
+
+
+        // BƯỚC 1: XÂY DỰNG BỨC TƯỜNG RÀO & GOM NHÓM NGÀNH MỤC TIÊU
+        const baseRowsMap = {}; 
+        const groupAgg = {}; 
+        const invoiceBaseLines = new Set();
+        
+        invRows.forEach(r => {
+            const lNum = parseInt(getCol(r, /^line$|^dòng$/i));
+            const itemVal = getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i);
+            if (isNaN(lNum) || !itemVal) return;
+            const item = String(itemVal).trim().toUpperCase();
+
+            let isCKCT = item.startsWith('CKCT');
+            let isFOC = item.endsWith('-01');
+
+            if (!isCKCT && !isFOC) {
+                const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+                let finalLine = null;
+                if (rawLineDesc.includes('MIX')) finalLine = 'MIX';
+                else if (rawLineDesc.includes('BITEEZ')) finalLine = 'BiteeZ';
+                else if (rawLineDesc.includes('PARTEEZ')) finalLine = 'ParteeZ';
+                else if (rawLineDesc.includes('DOUBLE')) finalLine = 'Vermicelli';
+                else if (rawLineDesc.includes('YAPPY')) finalLine = 'Yappy';
+                
+                const baseSku = cleanSku(item);
+                const mData = masterMap.get(baseSku) || {};
+                const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                const finalSkuName = skuMap[baseSku] || rawItemDesc || mData.name || baseSku;
+                
+                let groupKey = null;
+                if (finalLine) {
+                    invoiceBaseLines.add(finalLine);
+                    const weight = extractWeight(finalSkuName);
+                    groupKey = `${finalLine}_${weight}`;
+                    
+                    const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+                    const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
+                    const ctn = getCartonQty(baseSku, Math.abs(qty), uom);
+                    const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+
+                    if (!groupAgg[groupKey]) groupAgg[groupKey] = { line: finalLine, baseCtn: 0, baseNet: 0, ckctNet: 0, focCtn: 0, skus: [] };
+                    groupAgg[groupKey].baseCtn += ctn;
+                    groupAgg[groupKey].baseNet += Math.abs(net);
+                    groupAgg[groupKey].skus.push({ sku: baseSku, skuName: finalSkuName, groupKey: groupKey, ctn: ctn });
+                }
+
+                baseRowsMap[lNum] = { isTarget: !!finalLine, groupKey: groupKey };
+            }
+        });
+
+        // BƯỚC 2: CỘNG DỒN FOC / CHIẾT KHẤU KÈM TÍNH NĂNG "KHÓA CHÉO CẤP ĐỘ HÓA ĐƠN & SKU"
+        invRows.forEach(r => {
+            const lNum = parseInt(getCol(r, /^line$|^dòng$/i));
+            const itemVal = getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i);
+            if (isNaN(lNum) || !itemVal) return;
+            const item = String(itemVal).trim().toUpperCase();
+
+            let isCKCT = item.startsWith('CKCT');
+            let isFOC = item.endsWith('-01');
+            const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+
+            // CHỈ CHẶN luồng cộng dồn thông thường CỦA YAPPY NẾU `useSpecialYappyLogic` ĐÃ ĐƯỢC KÍCH HOẠT VÀ XỬ LÝ Ở BƯỚC 0
+            if (useSpecialYappyLogic && isCKCT && rawLineDesc.includes('YAPPY')) return;
+
+            if (isCKCT || isFOC) {
+                let realBase = null;
+                for (let i = lNum - 1; i >= 1; i--) {
+                    if (baseRowsMap[i]) { realBase = baseRowsMap[i]; break; }
+                }
+
+                if (realBase && realBase.isTarget && realBase.groupKey && groupAgg[realBase.groupKey]) {
+                    if (isFOC) {
+                        let focLine = null;
+                        if (rawLineDesc.includes('MIX')) focLine = 'MIX';
+                        else if (rawLineDesc.includes('BITEEZ')) focLine = 'BiteeZ';
+                        else if (rawLineDesc.includes('PARTEEZ')) focLine = 'ParteeZ';
+                        else if (rawLineDesc.includes('DOUBLE')) focLine = 'Vermicelli';
+                        else if (rawLineDesc.includes('YAPPY')) focLine = 'Yappy';
+                        
+                        if (!focLine) return; 
+                        if (!invoiceBaseLines.has(focLine)) return; 
+
+                        const focSkuRaw = cleanSku(item);
+                        const mDataFoc = masterMap.get(focSkuRaw) || {};
+                        const rawItemDescFoc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                        const finalFocName = skuMap[focSkuRaw] || rawItemDescFoc || mDataFoc.name || focSkuRaw;
+                        
+                        const focGroupKey = `${focLine}_${extractWeight(finalFocName)}`;
+                        if (focGroupKey !== realBase.groupKey) return; 
+                    }
+
+                    if (isCKCT) {
+                        const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+                        groupAgg[realBase.groupKey].ckctNet += Math.abs(net);
+                    }
+                    if (isFOC) {
+                        const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+                        const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
+                        const ctn = getCartonQty(item, Math.abs(qty), uom);
+                        groupAgg[realBase.groupKey].focCtn += ctn;
+                    }
+                }
+            }
+        });
+
+        // BƯỚC 3: XUẤT RA ALL PROMOS
+        if (typeStr !== 'TT') {
+            invRows.forEach(r => {
+                const lNum = parseInt(getCol(r, /^line$|^dòng$/i));
+                const item = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
+                let isCKCT = item.startsWith('CKCT');
+                let isFOC = item.endsWith('-01');
+                const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+
+                // CHẶN YAPPY CKCT (nếu đã xử lý Bước 0)
+                if (useSpecialYappyLogic && isCKCT && rawLineDesc.includes('YAPPY')) return;
+
+                if (isCKCT || isFOC) {
+                    let realBase = null;
+                    for (let i = lNum - 1; i >= 1; i--) { if (baseRowsMap[i]) { realBase = baseRowsMap[i]; break; } }
+
+                    if (realBase && realBase.isTarget && realBase.groupKey) {
+                        const baseLine = groupAgg[realBase.groupKey].line;
+                        
+                        if (isFOC) {
+                            let focLine = null;
+                            if (rawLineDesc.includes('MIX')) focLine = 'MIX'; else if (rawLineDesc.includes('BITEEZ')) focLine = 'BiteeZ';
+                            else if (rawLineDesc.includes('PARTEEZ')) focLine = 'ParteeZ'; else if (rawLineDesc.includes('DOUBLE')) focLine = 'Vermicelli';
+                            else if (rawLineDesc.includes('YAPPY')) focLine = 'Yappy';
+                            
+                            if (!focLine) return;
+                            if (!invoiceBaseLines.has(focLine)) return; 
+                            
+                            const focSkuRaw = cleanSku(item);
+                            const mDataFoc = masterMap.get(focSkuRaw) || {};
+                            const rawItemDescFoc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                            const finalFocName = skuMap[focSkuRaw] || rawItemDescFoc || mDataFoc.name || focSkuRaw;
+                            const focGroupKey = `${focLine}_${extractWeight(finalFocName)}`;
+                            
+                            if (focGroupKey !== realBase.groupKey) return; 
+                        }
+
+                        let pctValue = null, dispBuy = null, dispGet = null;
+                        const exactBaseRow = invRows.find(x => parseInt(getCol(x, /^line$|^dòng$/i)) === (lNum - 1));
+                        
+                        if(exactBaseRow) {
+                            const baseQty = parseNum(getCol(exactBaseRow, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+                            const baseUom = getCol(exactBaseRow, /^unit.*of.*measure$|^đơn.*vị/i);
+                            const baseSkuRaw = cleanSku(getCol(exactBaseRow, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i));
+                            const exactBaseCtn = getCartonQty(baseSkuRaw, Math.abs(baseQty), baseUom);
+                            const exactBaseNet = parseNum(getCol(exactBaseRow, /^net.*sales$|^doanh.*thu$/i));
+
+                            if (isCKCT && exactBaseNet !== 0) {
+                                const ckctNet = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+                                pctValue = ((Math.abs(ckctNet) / Math.abs(exactBaseNet)) * 100).toFixed(2);
+                            }
+                            if (isFOC) {
+                                const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+                                const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
+                                const focCtn = getCartonQty(item, Math.abs(qty), uom);
+                                
+                                if (exactBaseCtn > 0 && focCtn > 0) {
+                                    let bInt = Math.round(exactBaseCtn * 100);
+                                    let gInt = Math.round(focCtn * 100);
+                                    const divisor = gcd(bInt, gInt);
+                                    dispBuy = bInt / divisor;
+                                    dispGet = gInt / divisor;
+                                } else {
+                                    dispBuy = exactBaseCtn;
+                                    dispGet = focCtn;
+                                }
+                            }
+                            
+                            if(pctValue !== null || dispBuy !== null) {
+                                const mData = masterMap.get(baseSkuRaw) || {};
+                                const rawItemDesc = String(getCol(exactBaseRow, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                                const finalName = skuMap[baseSkuRaw] || rawItemDesc || mData.name || baseSkuRaw;
+
+                                allPromos.push({
+                                    month: fileMonthStr, hq, area, prov, line: baseLine, type: typeStr, customer,
+                                    sku: baseSkuRaw, skuName: finalName, 
+                                    pctValue: pctValue, dispBuy: dispBuy, dispGet: dispGet, baseCtn: Number(exactBaseCtn.toFixed(2)),
+                                    inv: invNumber 
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            Object.keys(groupAgg).forEach(gKey => {
+                const agg = groupAgg[gKey];
+                if (agg.baseCtn === 0) return;
+                
+                let pctValue = null, dispBuy = null, dispGet = null;
+                // CHẶN CỘNG DỒN NẾU LÀ YAPPY VÀ CÓ CKCT (vì Bước 0 đã nhặt rồi)
+                if (agg.ckctNet > 0 && agg.baseNet > 0) pctValue = ((agg.ckctNet / agg.baseNet) * 100).toFixed(2);
+                if (agg.focCtn > 0) {
+                    dispGet = Math.round((agg.focCtn / agg.baseCtn) * 100);
+                    dispBuy = 100;
+                }
+
+                if (pctValue !== null || dispBuy !== null) {
+                    const skuAgg = {};
+                    agg.skus.forEach(s => {
+                        if(!skuAgg[s.sku]) skuAgg[s.sku] = { name: s.skuName, ctn: 0 };
+                        skuAgg[s.sku].ctn += s.ctn;
+                    });
+                    Object.keys(skuAgg).forEach(sku => {
+                        const indCtn = Number(skuAgg[sku].ctn.toFixed(2));
+                        allPromos.push({
+                            month: fileMonthStr, hq, area, prov, line: agg.line, type: typeStr, customer,
+                            sku: sku, skuName: skuAgg[sku].name, 
+                            pctValue: pctValue, dispBuy: dispBuy, dispGet: dispGet, baseCtn: indCtn,
+                            inv: invNumber
+                        });
+                    });
+                }
+            });
+        }
+      });
+    }
+
+    GLOBAL_DATA = allPromos;
+    logD(`THÀNH CÔNG! Đã xử lý ${GLOBAL_DATA.length} dòng lệnh để kết xuất ra chương trình promotion.`);
+    MONTHS = [...new Set(allPromos.map(x => x.month))].sort();
+    populateFilters(); renderTable();
+    $('#status').textContent = `Đã kết xuất Promotion từ(${allPromos.length} dòng lệnh!)`;
+  } catch (e) {
+    console.error(e); $('#status').textContent = 'Lỗi!'; logD(`CRASHED LỖI: ${e.message}`);
+  } finally { $('#btnLoad').disabled = false; }
+}
+
+function populateFilters() {
+  const getUnique = key => [...new Set(GLOBAL_DATA.map(x => x[key]).filter(v => v && v !== 'Other'))].sort();
+  const fill = (id, vals) => {
+    const sel = $(id); const cur = sel.value;
+    sel.innerHTML = '<option value="">Tất cả</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+    if(vals.includes(cur)) sel.value = cur;
+  };
+  fill('#fHQ', getUnique('hq')); fill('#fArea', getUnique('area'));
+  fill('#fProv', getUnique('prov')); fill('#fLine', getUnique('line'));
+  fill('#fType', getUnique('type'));
+}
+
+function renderTable() {
+  const fH = $('#fHQ').value, fA = $('#fArea').value, fP = $('#fProv').value, fL = $('#fLine').value, fT = $('#fType').value;
+  const cusSearch = $('#fCusName').value.trim().toLowerCase();
+  const prodSearch = $('#fProdName').value.trim().toLowerCase();
+
+  const filtered = GLOBAL_DATA.filter(r => 
+    (!fH || r.hq === fH) && (!fA || r.area === fA) && (!fP || r.prov === fP) && (!fL || r.line === fL) && (!fT || r.type === fT) &&
+    (!cusSearch || (r.customer && r.customer.toLowerCase().includes(cusSearch))) &&
+    (!prodSearch || (r.skuName && r.skuName.toLowerCase().includes(prodSearch)) || (r.sku && r.sku.toLowerCase().includes(prodSearch)))
+  );
+
+  if (filtered.length === 0) { $('#tableView').innerHTML = `<div style="padding: 30px; text-align: center; color: var(--mut);">Không có dữ liệu khuyến mãi phù hợp bộ lọc.</div>`; return; }
+
+  const pivot = {};
+  filtered.forEach(r => {
+    const rowKey = `${r.customer}|${r.type}|${r.sku}|${r.skuName}`;
+    if (!pivot[rowKey]) pivot[rowKey] = {};
+    if (!pivot[rowKey][r.month]) pivot[rowKey][r.month] = {};
+
+    let ruleKey = `${r.pctValue || 'NA'}|${r.dispBuy || 'NA'}|${r.dispGet || 'NA'}`;
+    
+    if (!pivot[rowKey][r.month][ruleKey]) {
+        pivot[rowKey][r.month][ruleKey] = {
+            baseCtn: 0, pctValue: r.pctValue, dispBuy: r.dispBuy, dispGet: r.dispGet, invoices: new Set()
+        };
+    }
+    pivot[rowKey][r.month][ruleKey].baseCtn += r.baseCtn;
+    if(r.inv) pivot[rowKey][r.month][ruleKey].invoices.add(r.inv);
+  });
+
+  const rowKeys = Object.keys(pivot).sort((a,b) => a.localeCompare(b));
+  let html = `<table><thead><tr><th class="sticky-col">KH</th><th>Loại KH</th><th>SKU</th><th>Tên Sản phẩm</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}</tr></thead><tbody>`;
+
+  rowKeys.forEach(k => {
+    const [cus, type, sku, name] = k.split('|');
+    const displayType = type === 'Other' ? '' : type;
+    
+    html += `<tr><td class="sticky-col">${cus}</td><td>${displayType}</td><td style="font-weight:bold; color:var(--ac)">${sku}</td><td>${name}</td>`;
+    MONTHS.forEach(m => {
+      const cellData = pivot[k][m];
+      if (cellData) {
+          let htmlArr = [];
+          Object.values(cellData).forEach(promo => {
+              const fmt = n => Number.isInteger(n) ? n : Number(n.toFixed(2));
+              const invList = Array.from(promo.invoices).join(', ');
+              
+              let isWarn = false;
+              if (promo.pctValue !== null && (parseFloat(promo.pctValue) % 0.5 !== 0)) isWarn = true; 
+              if (promo.dispBuy !== null && (promo.dispBuy % 1 !== 0 || promo.dispGet % 1 !== 0)) isWarn = true; 
+              
+              let warnClass = isWarn ? 'tag-warn' : '';
+
+              let tags = `<span class="promo-tag tag-qty">Mua: ${fmt(promo.baseCtn)}</span>`;
+              if (promo.pctValue !== null) tags += `<span class="promo-tag tag-pct ${warnClass}">${promo.pctValue}%</span>`;
+              if (promo.dispBuy !== null) tags += `<span class="promo-tag tag-foc ${warnClass}">B ${fmt(promo.dispBuy)} G ${fmt(promo.dispGet)}</span>`;
+              
+              htmlArr.push(`<div class="promo-group" title="Hóa đơn: ${invList}">${tags}</div>`);
+          });
+          html += `<td>${htmlArr.join('<br>')}</td>`;
+      } else {
+          html += `<td style="color:#ccc;">-</td>`;
+      }
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`; $('#tableView').innerHTML = html;
+}
+
+['#fHQ', '#fArea', '#fProv', '#fLine', '#fType'].forEach(id => { $(id).addEventListener('change', renderTable); });
+['#fCusName', '#fProdName'].forEach(id => { $(id).addEventListener('input', renderTable); });
+</script>
+</body>
+</html>
