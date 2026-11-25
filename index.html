@@ -232,7 +232,7 @@ async function loadAllData() {
     
     const masterMap = new Map();
     masterRaw.forEach(r => {
-      const code = cleanSku(getCol(r, /^item.*code$|^item.*number$|^sku$|^mã/i));
+      const code = cleanSku(getCol(r, /^item.*code|^item.*number|^sku$|^mã/i));
       if (!code) return;
       const rawName = String(getCol(r, /^(tên|description)/i) || '').trim();
       masterMap.set(code, { name: rawName, ea: { 1: +getCol(r, /^ea qty #1/i)||1, 2: +getCol(r, /^ea qty #2/i)||1, 3: +getCol(r, /^ea qty #3/i)||1 } });
