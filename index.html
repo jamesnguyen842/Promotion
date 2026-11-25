@@ -63,7 +63,7 @@ td.sticky-c2, td.sticky-c4 { font-weight: 400; }
 </div>
 
 <div id="app" hidden>
-  <header><h1>Báo Cáo Chương Trình Khuyến Mãi (QAD)</h1><button onclick="logout()" style="background:transparent; border:1px solid var(--line); color:var(--fg); padding:5px 10px; border-radius:6px; cursor:pointer;">Đăng xuất</button></header>
+  <header><h1>Báo Cáo Chương Trình Khuyến Mãi</h1><button onclick="logout()" style="background:transparent; border:1px solid var(--line); color:var(--fg); padding:5px 10px; border-radius:6px; cursor:pointer;">Đăng xuất</button></header>
   <div class="controls"><button class="btn-load" id="btnLoad" onclick="loadAllData()">Tải & Xử lý Dữ liệu</button><span id="status" class="status-msg"></span></div>
   <div class="filters">
     <label>HQ <select id="fHQ"><option value="">Tất cả</option></select></label>
@@ -76,12 +76,16 @@ td.sticky-c2, td.sticky-c4 { font-weight: 400; }
   </div>
   <main>
     <div class="tabs">
-      <button class="tab-btn active" id="tabBtnTable" onclick="switchTab('table')">Bảng Promotion</button>
-      <button class="tab-btn" id="tabBtnChart" onclick="switchTab('chart')">Biểu đồ NET_SALES</button>
+      <button class="tab-btn active" id="tabBtnTable" onclick="switchTab('table')">Details</button>
+      <button class="tab-btn" id="tabBtnChart" onclick="switchTab('chart')">Doanh số bán</button>
+      <button class="tab-btn" id="tabBtnQty" onclick="switchTab('qty')">Sản lượng hàng bán</button>
     </div>
     <div class="wrap" id="tableView"><div style="padding: 30px; text-align: center; color: var(--mut); font-style: italic;">Vui lòng nhấn "Tải & Xử lý Dữ liệu" để bắt đầu...</div></div>
     <div class="wrap chart-wrap" id="chartView" hidden>
       <canvas id="salesChart"></canvas>
+    </div>
+    <div class="wrap chart-wrap" id="qtyChartView" hidden>
+      <canvas id="qtyChart"></canvas>
     </div>
     <div id="debugView">Log Chẩn đoán đã sẵn sàng, hãy bấm nút tải dữ liệu...</div>
   </main>
@@ -104,6 +108,7 @@ let GLOBAL_DATA = [];
 let GLOBAL_SALES = [];
 let MONTHS = [];
 let salesChartInstance = null;
+let qtyChartInstance = null;
 
 const $ = s => document.querySelector(s);
 let debugText = "";
@@ -190,14 +195,20 @@ async function logout() { await sb.auth.signOut(); location.reload(); }
 
 function switchTab(tab) {
   const isTable = tab === 'table';
+  const isChart = tab === 'chart';
+  const isQty = tab === 'qty';
   $('#tableView').hidden = !isTable;
-  $('#chartView').hidden = isTable;
+  $('#chartView').hidden = !isChart;
+  $('#qtyChartView').hidden = !isQty;
   $('#tabBtnTable').classList.toggle('active', isTable);
-  $('#tabBtnChart').classList.toggle('active', !isTable);
+  $('#tabBtnChart').classList.toggle('active', isChart);
+  $('#tabBtnQty').classList.toggle('active', isQty);
   if (isTable) {
     applyStickyColumns();
-  } else {
+  } else if (isChart) {
     renderChart();
+  } else if (isQty) {
+    renderQtyChart();
   }
 }
 
@@ -242,14 +253,19 @@ async function loadAllData() {
     let allPromos = [];
     const salesAggMap = new Map();
 
-    const addTotalSale = (month, hq, area, prov, line, type, customer, sku, skuName, netVal) => {
-      if (!netVal) return;
+    const addSaleMetric = (month, hq, area, prov, line, type, customer, sku, skuName, netVal, focNetVal, ctnVal) => {
+      if (!netVal && !focNetVal && !ctnVal) return;
       const key = `${month}|${hq}|${area}|${prov}|${line}|${type}|${customer}|${sku}|${skuName}`;
       const existing = salesAggMap.get(key);
       if (existing) {
         existing.netSales += netVal;
+        existing.focNetSales += focNetVal;
+        existing.totalCtn += ctnVal;
       } else {
-        salesAggMap.set(key, { month, hq, area, prov, line, type, customer, sku, skuName, netSales: netVal });
+        salesAggMap.set(key, {
+          month, hq, area, prov, line, type, customer, sku, skuName,
+          netSales: netVal, focNetSales: focNetVal, totalCtn: ctnVal
+        });
       }
     };
 
@@ -271,6 +287,7 @@ async function loadAllData() {
       const raw = XLSX.utils.sheet_to_json(sheet, { defval: null });
       const headerRow = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0 })[0] || [];
       const colBKey = (headerRow[1] !== undefined && headerRow[1] !== null) ? String(headerRow[1]) : null;
+      const colXKey = (headerRow[23] !== undefined && headerRow[23] !== null) ? String(headerRow[23]) : null;
 
       const invoices = {};
       raw.forEach(r => {
@@ -333,41 +350,6 @@ async function loadAllData() {
         const customer = custypeMap[cusTypeRaw] || cusNameRaw;
 
         if (typeStr === 'ICB' || typeStr === 'E-Commerce') return;
-
-        // Gom NET_SALES Total cho biểu đồ (hỗ trợ tất cả bộ lọc)
-        let lastBaseSku = '', lastBaseSkuName = '';
-        invRows.forEach(r => {
-            const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
-            const itemVal = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
-            const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
-            let rowLine = '';
-            if (rawLineDesc.includes('MIX')) rowLine = 'MIX';
-            else if (rawLineDesc.includes('BITEEZ')) rowLine = 'BiteeZ';
-            else if (rawLineDesc.includes('PARTEEZ')) rowLine = 'ParteeZ';
-            else if (rawLineDesc.includes('DOUBLE')) rowLine = 'Vermicelli';
-            else if (rawLineDesc.includes('YAPPY')) rowLine = 'Yappy';
-            else rowLine = rawLineDesc;
-
-            const isCKCT = itemVal.startsWith('CKCT');
-            const isFOC = itemVal.endsWith('-01');
-            let rowSku = cleanSku(itemVal);
-            let rowSkuName = '';
-            if (!isCKCT && !isFOC && rowSku) {
-                const mData = masterMap.get(rowSku) || {};
-                const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
-                rowSkuName = skuMap[rowSku] || rawItemDesc || mData.name || rowSku;
-                lastBaseSku = rowSku;
-                lastBaseSkuName = rowSkuName;
-            } else if (isCKCT && lastBaseSku) {
-                rowSku = lastBaseSku;
-                rowSkuName = lastBaseSkuName;
-            } else {
-                const mData = masterMap.get(rowSku) || {};
-                const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
-                rowSkuName = skuMap[rowSku] || rawItemDesc || mData.name || rowSku;
-            }
-            addTotalSale(fileMonthStr, hq, area, prov, rowLine, typeStr, customer, rowSku, rowSkuName, net);
-        });
 
         // --- BƯỚC ĐẾM (PRE-CHECK) CHO PHÒNG TUYẾN YAPPY ---
         let yappyBaseCount = 0;
@@ -466,6 +448,8 @@ async function loadAllData() {
         const baseRowsMap = {}; 
         const groupAgg = {}; 
         const invoiceBaseLines = new Set();
+        const invSkuPricePerCtn = {};
+        const invGroupPricePerCtn = {};
         
         invRows.forEach(r => {
             const lNum = parseInt(getCol(r, /^line$|^dòng$/i));
@@ -489,25 +473,121 @@ async function loadAllData() {
                 const mData = masterMap.get(baseSku) || {};
                 const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
                 const finalSkuName = skuMap[baseSku] || rawItemDesc || mData.name || baseSku;
+
+                const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+                const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
+                const ctnAbs = getCartonQty(baseSku, Math.abs(qty), uom);
+                const rawNetPrice = (colXKey && r[colXKey] !== undefined && r[colXKey] !== null)
+                    ? parseNum(r[colXKey])
+                    : parseNum(getCol(r, /^net.*price$/i));
+                const pricePerCtn = (ctnAbs > 0 && rawNetPrice > 0) ? ((rawNetPrice * Math.abs(qty)) / ctnAbs) : 0;
+                if (pricePerCtn > 0) invSkuPricePerCtn[baseSku] = pricePerCtn;
                 
                 let groupKey = null;
                 if (finalLine) {
                     invoiceBaseLines.add(finalLine);
                     const weight = extractWeight(finalSkuName);
                     groupKey = `${finalLine}_${weight}`;
+                    if (pricePerCtn > 0 && !invGroupPricePerCtn[groupKey]) {
+                        invGroupPricePerCtn[groupKey] = pricePerCtn;
+                    }
                     
-                    const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
-                    const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
-                    const ctn = getCartonQty(baseSku, Math.abs(qty), uom);
                     const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
 
                     if (!groupAgg[groupKey]) groupAgg[groupKey] = { line: finalLine, baseCtn: 0, baseNet: 0, ckctNet: 0, focCtn: 0, skus: [] };
-                    groupAgg[groupKey].baseCtn += ctn;
+                    groupAgg[groupKey].baseCtn += ctnAbs;
                     groupAgg[groupKey].baseNet += Math.abs(net);
-                    groupAgg[groupKey].skus.push({ sku: baseSku, skuName: finalSkuName, groupKey: groupKey, ctn: ctn, net: Math.abs(net) });
+                    groupAgg[groupKey].skus.push({ sku: baseSku, skuName: finalSkuName, groupKey: groupKey, ctn: ctnAbs, net: Math.abs(net) });
                 }
 
-                baseRowsMap[lNum] = { isTarget: !!finalLine, groupKey: groupKey };
+                baseRowsMap[lNum] = {
+                    isTarget: !!finalLine,
+                    groupKey: groupKey,
+                    sku: baseSku,
+                    skuName: finalSkuName,
+                    pricePerCtn: pricePerCtn
+                };
+            }
+        });
+
+        // GOM DỮ LIỆU CHO BIỂU ĐỒ NET_SALES & SẢN LƯỢNG HÀNG BÁN (LOẠI TRỪ TOP UP CHÉO)
+        let lastBaseSku = '', lastBaseSkuName = '';
+        invRows.forEach(r => {
+            const lNum = parseInt(getCol(r, /^line$|^dòng$/i));
+            const net = parseNum(getCol(r, /^net.*sales$|^doanh.*thu$/i));
+            const itemVal = String(getCol(r, /^item.*number$|^item.*code$|^mã.*vật.*tư|^sku$/i) || '').trim().toUpperCase();
+            if (!itemVal) return;
+
+            const rawLineDesc = String(getCol(r, /^product.*line.*desc/i) || '').trim().toUpperCase();
+            let rowLine = '';
+            if (rawLineDesc.includes('MIX')) rowLine = 'MIX';
+            else if (rawLineDesc.includes('BITEEZ')) rowLine = 'BiteeZ';
+            else if (rawLineDesc.includes('PARTEEZ')) rowLine = 'ParteeZ';
+            else if (rawLineDesc.includes('DOUBLE')) rowLine = 'Vermicelli';
+            else if (rawLineDesc.includes('YAPPY')) rowLine = 'Yappy';
+            else rowLine = rawLineDesc;
+
+            const isCKCT = itemVal.startsWith('CKCT');
+            const isFOC = itemVal.endsWith('-01');
+            const qty = parseNum(getCol(r, /^qty.*invoiced$|^sales.*qty$|^số.*lượng$/i));
+            const uom = getCol(r, /^unit.*of.*measure$|^đơn.*vị/i);
+
+            if (!isCKCT && !isFOC) {
+                const rowSku = cleanSku(itemVal);
+                const mData = masterMap.get(rowSku) || {};
+                const rawItemDesc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                const rowSkuName = skuMap[rowSku] || rawItemDesc || mData.name || rowSku;
+                lastBaseSku = rowSku;
+                lastBaseSkuName = rowSkuName;
+
+                const rowCtn = getCartonQty(rowSku, qty, uom);
+                addSaleMetric(fileMonthStr, hq, area, prov, rowLine, typeStr, customer, rowSku, rowSkuName, net, 0, rowCtn);
+            } else if (isCKCT) {
+                let rowSku = lastBaseSku || cleanSku(itemVal);
+                let rowSkuName = lastBaseSkuName || itemVal;
+                if (!isNaN(lNum)) {
+                    for (let i = lNum - 1; i >= 1; i--) {
+                        if (baseRowsMap[i]) {
+                            rowSku = baseRowsMap[i].sku;
+                            rowSkuName = baseRowsMap[i].skuName;
+                            break;
+                        }
+                    }
+                }
+                // Dòng CKCT đã có NET_SALES âm sẵn trong cột Y, không cộng vào sản lượng thùng
+                addSaleMetric(fileMonthStr, hq, area, prov, rowLine, typeStr, customer, rowSku, rowSkuName, net, 0, 0);
+            } else if (isFOC) {
+                // Kiểm tra quy tắc khóa chéo ngành hàng đặc biệt (loại trừ hoàn toàn top-up chéo)
+                let realBase = null;
+                if (!isNaN(lNum)) {
+                    for (let i = lNum - 1; i >= 1; i--) {
+                        if (baseRowsMap[i]) { realBase = baseRowsMap[i]; break; }
+                    }
+                }
+                if (!realBase || !realBase.isTarget || !realBase.groupKey || !groupAgg[realBase.groupKey]) return;
+
+                let focLine = null;
+                if (rawLineDesc.includes('MIX')) focLine = 'MIX';
+                else if (rawLineDesc.includes('BITEEZ')) focLine = 'BiteeZ';
+                else if (rawLineDesc.includes('PARTEEZ')) focLine = 'ParteeZ';
+                else if (rawLineDesc.includes('DOUBLE')) focLine = 'Vermicelli';
+                else if (rawLineDesc.includes('YAPPY')) focLine = 'Yappy';
+
+                if (!focLine || !invoiceBaseLines.has(focLine)) return;
+
+                const focSkuRaw = cleanSku(itemVal);
+                const mDataFoc = masterMap.get(focSkuRaw) || {};
+                const rawItemDescFoc = String(getCol(r, /^item.*number.*desc|^item.*desc|^tên.*vật.*tư|^tên.*sản.*phẩm/i) || '').trim();
+                const finalFocName = skuMap[focSkuRaw] || rawItemDescFoc || mDataFoc.name || focSkuRaw;
+                const focGroupKey = `${focLine}_${extractWeight(finalFocName)}`;
+                if (focGroupKey !== realBase.groupKey) return;
+
+                // FOC hợp lệ: soi Net Price (cột X) trong cùng hóa đơn theo đúng phân loại nhóm sản phẩm (ví dụ MIX_50g)
+                const focCtn = getCartonQty(itemVal, Math.abs(qty), uom);
+                const unitPricePerCtn = invSkuPricePerCtn[focSkuRaw] || invGroupPricePerCtn[focGroupKey] || realBase.pricePerCtn || 0;
+                const focNetValue = focCtn * unitPricePerCtn;
+
+                addSaleMetric(fileMonthStr, hq, area, prov, focLine, typeStr, customer, focSkuRaw, finalFocName, net, focNetValue, focCtn);
             }
         });
 
@@ -692,7 +772,7 @@ async function loadAllData() {
     logD(`THÀNH CÔNG! Đã xử lý ${GLOBAL_DATA.length} dòng lệnh để kết xuất ra chương trình promotion.`);
     MONTHS = [...new Set([...allPromos.map(x => x.month), ...GLOBAL_SALES.map(x => x.month)])].sort();
     populateFilters(); renderAll();
-    $('#status').textContent = `Đã kết xuất Promotion từ(${allPromos.length} dòng lệnh!)`;
+    $('#status').textContent = `Đã hoàn tất kết xuất Promotion từ ${allPromos.length} dòng lệnh!`;
     $('#debugView').hidden = true;
   } catch (e) {
     console.error(e); $('#status').textContent = 'Lỗi!'; logD(`CRASHED LỖI: ${e.message}`);
@@ -829,22 +909,18 @@ function renderChart() {
 
   const f = getFilterValues();
   const totalByMonth = {};
-  const promoByMonth = {};
-  MONTHS.forEach(m => { totalByMonth[m] = 0; promoByMonth[m] = 0; });
+  const actualByMonth = {};
+  MONTHS.forEach(m => { totalByMonth[m] = 0; actualByMonth[m] = 0; });
 
   GLOBAL_SALES.filter(r => matchFilters(r, f)).forEach(r => {
-    if (totalByMonth[r.month] !== undefined) totalByMonth[r.month] += r.netSales;
-  });
-
-  const seenPromoKeys = new Set();
-  GLOBAL_DATA.filter(r => matchFilters(r, f)).forEach(r => {
-    if (r.promoKey && seenPromoKeys.has(r.promoKey)) return;
-    if (r.promoKey) seenPromoKeys.add(r.promoKey);
-    if (promoByMonth[r.month] !== undefined) promoByMonth[r.month] += (r.promoNet || 0);
+    if (totalByMonth[r.month] !== undefined) {
+      totalByMonth[r.month] += r.netSales;
+      actualByMonth[r.month] += (r.netSales - (r.focNetSales || 0));
+    }
   });
 
   const totalSeries = MONTHS.map(m => Math.round(totalByMonth[m]));
-  const promoSeries = MONTHS.map(m => Math.round(promoByMonth[m]));
+  const actualSeries = MONTHS.map(m => Math.round(actualByMonth[m]));
 
   if (salesChartInstance) salesChartInstance.destroy();
   salesChartInstance = new Chart(ctx, {
@@ -854,26 +930,24 @@ function renderChart() {
       datasets: [
         {
           type: 'bar',
-          label: 'NET_SALES Total',
+          label: 'NET_SALES Total (Bao gồm CKCT)',
           data: totalSeries,
           backgroundColor: 'rgba(52, 100, 92, 0.72)',
           borderColor: '#34645c',
           borderWidth: 1,
           borderRadius: 4,
-          yAxisID: 'yLeft',
           order: 2
         },
         {
           type: 'line',
-          label: 'NET_SALES Promotion',
-          data: promoSeries,
+          label: 'NET_SALES WITH PROMOTIONS (Bao gồm FOC & CKCT)',
+          data: actualSeries,
           borderColor: '#e67e22',
           backgroundColor: 'rgba(230, 126, 34, 0.15)',
           borderWidth: 2.5,
           pointRadius: 4,
           pointBackgroundColor: '#e67e22',
           tension: 0.25,
-          yAxisID: 'yRight',
           order: 1
         }
       ]
@@ -894,19 +968,85 @@ function renderChart() {
         x: {
           title: { display: true, text: 'Tháng', font: { weight: 'bold' } }
         },
-        yLeft: {
+        y: {
           type: 'linear',
           position: 'left',
           beginAtZero: true,
-          title: { display: true, text: 'NET_SALES Total', color: '#34645c', font: { weight: 'bold' } },
+          title: { display: true, text: 'NET_SALES (VNĐ)', color: '#34645c', font: { weight: 'bold' } },
           ticks: { callback: v => Number(v).toLocaleString('vi-VN') }
+        }
+      }
+    }
+  });
+}
+
+function renderQtyChart() {
+  const ctx = $('#qtyChart');
+  if (!ctx) return;
+
+  const f = getFilterValues();
+  const ctnByMonth = {};
+  MONTHS.forEach(m => { ctnByMonth[m] = 0; });
+
+  GLOBAL_SALES.filter(r => matchFilters(r, f)).forEach(r => {
+    if (ctnByMonth[r.month] !== undefined) {
+      ctnByMonth[r.month] += (r.totalCtn || 0);
+    }
+  });
+
+  const ctnSeries = MONTHS.map(m => Number(ctnByMonth[m].toFixed(2)));
+  const totalAllMonths = ctnSeries.reduce((sum, v) => sum + v, 0);
+  const avgCtn = MONTHS.length > 0 ? Number((totalAllMonths / MONTHS.length).toFixed(2)) : 0;
+  const avgSeries = MONTHS.map(() => avgCtn);
+
+  if (qtyChartInstance) qtyChartInstance.destroy();
+  qtyChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: MONTHS,
+      datasets: [
+        {
+          label: 'Sản lượng bán ra + FOC',
+          data: ctnSeries,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.15)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#2563eb',
+          tension: 0.25
         },
-        yRight: {
-          type: 'linear',
-          position: 'right',
+        {
+          label: `Sản lượng trung bình`,
+          data: avgSeries,
+          borderColor: '#e67e22',
+          backgroundColor: 'rgba(230, 126, 34, 0.12)',
+          borderWidth: 2.5,
+          borderDash: [6, 4],
+          pointRadius: 3,
+          pointBackgroundColor: '#e67e22',
+          tension: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: (c) => `${c.dataset.label}: ${Number(c.parsed.y || 0).toLocaleString('vi-VN')} thùng`
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Tháng', color: '#34645c', font: { weight: 'bold' } }
+        },
+        y: {
           beginAtZero: true,
-          grid: { drawOnChartArea: false },
-          title: { display: true, text: 'NET_SALES Promotion', color: '#e67e22', font: { weight: 'bold' } },
+          title: { display: true, text: 'Sản lượng (Thùng)', color: '#2563eb', font: { weight: 'bold' } },
           ticks: { callback: v => Number(v).toLocaleString('vi-VN') }
         }
       }
@@ -917,6 +1057,7 @@ function renderChart() {
 function renderAll() {
   renderTable();
   if (!$('#chartView').hidden) renderChart();
+  if (!$('#qtyChartView').hidden) renderQtyChart();
 }
 
 ['#fHQ', '#fArea', '#fProv', '#fLine', '#fType'].forEach(id => { $(id).addEventListener('change', renderAll); });
