@@ -9,12 +9,6 @@
 :root { --bg: #f2f7f5; --fg: #2b3d36; --mut: #688478; --card: #ffffff; --line: #cddcd6; --ac: #34645c; --ac2: #d6e5df; --ac-hover: #264a44; --shadow: 0px 8px 24px rgba(52, 100, 92, 0.1); }
 * { box-sizing: border-box; } 
 body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Open Sans", sans-serif; } [hidden] { display: none !important; }
-#login { display: flex; align-items: center; justify-content: center; height: 100vh; background: #2b3d36; }
-.login-box { background: #fff; padding: 40px 30px; border-radius: 16px; box-shadow: var(--shadow); width: 100%; max-width: 360px; text-align: center; }
-.login-box h2 { margin-top: 0; font-family: "Raleway", sans-serif; color: var(--ac); margin-bottom: 20px; }
-.login-box input { width: 100%; padding: 10px 15px; margin-bottom: 15px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; outline: none; }
-.login-box button { width: 100%; padding: 10px; background: var(--ac); color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
-#loginErr { color: #d9232d; font-size: 13px; margin-top: 10px; min-height: 18px; }
 header { display: flex; align-items: center; padding: 15px 30px; background: var(--card); border-bottom: 1px solid var(--line); }
 header h1 { font-size: 20px; margin: 0; font-family: "Raleway", sans-serif; color: var(--ac); flex: 1; }
 .controls, .filters { display: flex; gap: 15px; padding: 15px 30px; flex-wrap: wrap; align-items: flex-end; }
@@ -51,17 +45,6 @@ td.sticky-c2, td.sticky-c4 { font-weight: 400; }
 </style>
 </head>
 <body>
-
-<div id="login">
-  <div class="login-box">
-    <h2>Đăng nhập</h2>
-    <input type="email" id="em" placeholder="Email" autocomplete="username">
-    <input type="password" id="pw" placeholder="Mật khẩu" autocomplete="current-password">
-    <button id="btnLogin" onclick="doLogin()">Đăng nhập</button>
-    <div id="loginErr"></div>
-  </div>
-</div>
-
 <div id="app" hidden>
   <header><h1>Báo Cáo Chương Trình Khuyến Mãi</h1><button onclick="logout()" style="background:transparent; border:1px solid var(--line); color:var(--fg); padding:5px 10px; border-radius:6px; cursor:pointer;">Đăng xuất</button></header>
   <div class="controls"><button class="btn-load" id="btnLoad" onclick="loadAllData()">Tải & Xử lý Dữ liệu</button><span id="status" class="status-msg"></span></div>
@@ -182,17 +165,30 @@ const extractWeight = (name) => {
     let weight = match ? match[0].toLowerCase().replace(/\s/g, '') : 'default';
     return subBrand + weight;
 };
+const HOME_URL = 'https://jamesnguyen842.github.io/Summary-MKT-Report/';
 
-$('#pw').addEventListener('keydown', e => { if(e.key === 'Enter') doLogin(); });
-async function doLogin() {
-  $('#loginErr').textContent = "Đang đăng nhập..."; $('#btnLogin').disabled = true;
-  try {
-    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
-    if (error) throw error; $('#login').hidden = true; $('#app').hidden = false;
-  } catch(e) { $('#loginErr').textContent = "Lỗi: " + e.message; } finally { $('#btnLogin').disabled = false; }
+async function checkAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    window.location.replace(HOME_URL);
+    return;
+  }
+  $('#app').hidden = false;
 }
-async function logout() { await sb.auth.signOut(); location.reload(); }
 
+// Tự động đẩy về trang chủ nếu đăng xuất ở tab khác
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT' || !session) {
+    window.location.replace(HOME_URL);
+  }
+});
+
+async function logout() {
+  await sb.auth.signOut();
+  window.location.replace(HOME_URL);
+}
+
+checkAuth();
 function switchTab(tab) {
   const isTable = tab === 'table';
   const isChart = tab === 'chart';
