@@ -818,6 +818,35 @@ function getFilterValues() {
   };
 }
 
+function matchProdSearch(r, prodSearch) {
+  if (!prodSearch) return true;
+  const name = (r.skuName || '').toLowerCase();
+  const sku = (r.sku || '').toLowerCase();
+
+  // Luôn cho phép tìm nhanh theo mã SKU
+  if (sku.includes(prodSearch)) return true;
+
+  // Logic lọc thông minh độc quyền cho ngành hàng MIX
+  if (r.line === 'MIX') {
+    const hasPlusQuery = prodSearch.includes('+');
+    // Nếu người dùng không gõ dấu "+", loại trừ các SKU dạng gói cộng thêm (vd: 48+2)
+    if (!hasPlusQuery && /\d+\s*\+\s*\d+/.test(name)) return false;
+
+    const tokens = prodSearch.split(/\s+/).filter(Boolean);
+    return tokens.every(tok => {
+      // Nếu từ khóa là trọng lượng (vd: 50g, 20g, 150g...) -> chặn dính số phía trước (50g không khớp 150g)
+      if (/^\d+(?:\.\d+)?k?g(?:r)?$/i.test(tok)) {
+        const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(?:^|[^\\d])${escaped}(?:$|[^a-z0-9])`, 'i').test(name);
+      }
+      return name.includes(tok);
+    });
+  }
+
+  // Các ngành hàng khác giữ nguyên logic tìm kiếm cũ
+  return name.includes(prodSearch);
+}
+
 function matchFilters(r, f) {
   return (!f.fH || r.hq === f.fH) &&
          (!f.fA || r.area === f.fA) &&
@@ -825,7 +854,7 @@ function matchFilters(r, f) {
          (!f.fL || r.line === f.fL) &&
          (!f.fT || r.type === f.fT) &&
          (!f.cusSearch || (r.customer && r.customer.toLowerCase().includes(f.cusSearch))) &&
-         (!f.prodSearch || (r.skuName && r.skuName.toLowerCase().includes(f.prodSearch)) || (r.sku && r.sku.toLowerCase().includes(f.prodSearch)));
+         matchProdSearch(r, f.prodSearch);
 }
 
 function renderTable() {
